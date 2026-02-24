@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Submarine Game</title>
+<style>
+    body { margin: 0; background: #222; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
+    canvas { background: #87CEEB; border: 2px solid #555; max-width: 95vw; max-height: 60vh; display: block; }
+    #controls { display: flex; justify-content: space-around; align-items: center; width: 100%; max-width: 600px; padding: 20px 0; user-select: none; }
+    .btn { background: rgba(255, 255, 255, 0.2); color: white; border: 2px solid #fff; border-radius: 50%; width: 70px; height: 70px; display: flex; justify-content: center; align-items: center; font-size: 30px; touch-action: manipulation; cursor: pointer; }
+    .btn:active { background: rgba(255, 255, 255, 0.5); }
+    #btnFire { width: 90px; height: 90px; font-size: 18px; background: rgba(255, 0, 0, 0.3); }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="600" height="450"></canvas>
+<div id="controls">
+    <div id="btnL" class="btn">◀</div>
+    <div id="btnFire" class="btn">FIRE</div>
+    <div id="btnR" class="btn">▶</div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// 1. 画像の設定 (カンマ不足を修正)
+const imgRes = {
+    player: new Image(),
+    subL: new Image(),
+    subR: new Image(),
+    boom: new Image(),
+    depth: new Image(),
+    torpedo: new Image()
+};
+
+imgRes.player.src = "ship.png";
+imgRes.subL.src   = "sub_left.png";
+imgRes.subR.src   = "sub_right.png";
+imgRes.boom.src   = "explosion.png";
+imgRes.depth.src  = "depth.png";
+imgRes.torpedo.src = "torpedo.png";
+
+// 画像読み込み管理
+let loadedCount = 0;
+const totalImages = Object.keys(imgRes).length;
+
+Object.values(imgRes).forEach(img => {
+    img.onload = () => checkLoad();
+    img.onerror = () => {
+        console.warn("画像が読み込めませんでした: " + img.src);
+        checkLoad();
+    };
+});
+
+function checkLoad() {
+    loadedCount++;
+    if(loadedCount >= totalImages) {
+        if(gseq === -1) { // 最初の1回だけ実行
+            gseq = 0;
+            gameInit();
+            draw();
+        }
+    }
+}
+
+// 2. ゲーム変数
+let gseq = -1; // 初期状態
+let px = 240, pw = 120, ph = 40, pSink = 0;
+let score = 0, mcnt = 0, bombWait = 0;
+let keyState = [0, 0, 0];
+let ex = [], ey = [], ed = [], espeed = [], ecnt = [];
+let bPx = [], bPy = [], bEx = [], bEy = [];
+
+function gameInit(){
+    px = 240; pSink = 0; score = 0; mcnt = 0;
+    ex = new Array(12).fill(0); ey = new Array(12).fill(0);
+    ed = new Array(12).fill(4); espeed = new Array(12).fill(0);
+    ecnt = new Array(12).fill(0);
+    bPx = new Array(6).fill(0); bPy = new Array(6).fill(-20);
+    bEx = new Array(20).fill(0); bEy = new Array(20).fill(-20);
+}
+
+function draw(){
+    ctx.clearRect(0,0,600,450);
+    if(gseq === 0) gameTitle();
+    else if(gseq === 1) gamePlay();
+    else if(gseq === 2) gameOver();
+    requestAnimationFrame(draw);
+}
+
+function gameTitle(){
+    ctx.fillStyle = "#0044aa"; ctx.fillRect(0,0,600,450);
+    ctx.fillStyle = "white"; ctx.textAlign = "center";
+    ctx.font = "40px sans-serif"; ctx.fillText("SUBMARINE GAME", 300, 200);
+    mcnt++;
+    if(mcnt % 60 < 40) {
+        ctx.font = "20px sans-serif";
+        ctx.fillText("Press FIRE to Start", 300, 300);
+    }
+}
+
+function gamePlay(){
+    ctx.fillStyle = "#0066cc"; ctx.fillRect(0, 90, 600, 360);
+    try {
+        ctx.drawImage(imgRes.player, px, 50, pw, ph);
+    } catch(e) {}
+    playerMove();
+    enemyMove();
+    enemyDisp();
+    bombPlayerMove();
+    bombEnemyMove();
+    ctx.fillStyle = "black"; ctx.font = "20px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText("SCORE: " + score, 20, 30);
+}
+
+function gameOver(){
+    ctx.fillStyle = "#0044cc"; ctx.fillRect(0, 90, 600, 360);
+    try {
+        ctx.drawImage(imgRes.player, px, 50 + pSink, pw, ph);
+    } catch(e) {}
+    if(pSink < 150) pSink += 1;
+    enemyDisp();
+    bombEnemyMove();
+    ctx.fillStyle = "red"; ctx.textAlign = "center"; ctx.font = "60px sans-serif";
+    ctx.fillText("GAME OVER", 300, 240);
+    mcnt++;
+    if(mcnt > 100) {
+        ctx.font = "20px sans-serif"; ctx.fillStyle = "white";
+        ctx.fillText("Press FIRE to Restart", 300, 320);
+    }
+}
+
+function playerMove(){
+    if(keyState[0] && px > 0) px -= 4;
+    if(keyState[1] && px < 600 - pw) px += 4;
+    if(bombWait > 0) bombWait--;
+    if(keyState[2] && bombWait === 0){
+        for(let i=0; i<6; i++){
+            if(bPy[i] < 0){ bPx[i] = px + pw/2; bPy[i] = 90; bombWait = 15; break; }
+        }
+    }
+}
+
+function enemyMove(){
+    if(Math.random() < 0.02) {
+        for(let i=0; i<12; i++){
+            if(ed[i] === 4){
+                ed[i] = Math.random() < 0.5 ? 0 : 1;
+                ex[i] = (ed[i] === 0) ? 600 : -60;
+                ey[i] = 130 + Math.random() * 270;
+                espeed[i] = (ed[i] === 0) ? -2 : 2;
+                break;
+            }
+        }
+    }
+    for(let i=0; i<12; i++){
+        if(ed[i] < 2) {
+            ex[i] += espeed[i];
+            if(ex[i] < -100 || ex[i] > 700) ed[i] = 4;
+            if(Math.random() < 0.008 && gseq === 1) {
+                for(let j=0; j<20; j++){
+                    if(bEy[j] < 0){ bEx[j] = ex[i]+30; bEy[j] = ey[i]; break; }
+                }
+            }
+        }
+    }
+}
+
+function enemyDisp(){
+    for(let i=0; i<12; i++){
+        try {
+            if(ed[i] === 0) ctx.drawImage(imgRes.subL, ex[i], ey[i], 60, 30);
+            if(ed[i] === 1) ctx.drawImage(imgRes.subR, ex[i], ey[i], 60, 30);
+            if(ed[i] === 2 || ed[i] === 3){
+                ctx.drawImage(imgRes.boom, ex[i], ey[i], 60, 30);
+                ecnt[i]++;
+                if(ecnt[i] > 30) ed[i] = 4;
+            }
+        } catch(e) {}
+        if(ed[i] < 2){
+            for(let j=0; j<6; j++){
+                if(bPy[j] > ey[i] && bPy[j] < ey[i]+30 && bPx[j] > ex[i] && bPx[j] < ex[i]+60){
+                    ed[i] = 2; ecnt[i] = 0; bPy[j] = -20; score += 100;
+                }
+            }
+        }
+    }
+}
+
+function bombPlayerMove(){
+    for(let i=0; i<6; i++){
+        if(bPy[i] > 0){
+            bPy[i] += 2;
+            try { ctx.drawImage(imgRes.depth, bPx[i], bPy[i], 20, 20); } catch(e) {}
+            if(bPy[i] > 450) bPy[i] = -20;
+        }
+    }
+}
+
+function bombEnemyMove(){
+    for(let i=0; i<20; i++){
+        if(bEy[i] > 0){
+            bEy[i] -= 1;
+            try { ctx.drawImage(imgRes.torpedo, bEx[i], bEy[i], 24, 12); } catch(e) {}
+            if(bEy[i] < 90){
+                if(bEx[i] > px && bEx[i] < px+pw && gseq === 1){ gseq = 2; mcnt = 0; }
+                bEy[i] = -20;
+            }
+        }
+    }
+}
+
+// 操作関連
+const handleAction = (index, isDown) => {
+    keyState[index] = isDown ? 1 : 0;
+    if(isDown && index === 2) {
+        if(gseq === 0) gseq = 1;
+        if(gseq === 2 && mcnt > 100) { gameInit(); gseq = 1; }
+    }
+};
+
+window.addEventListener("keydown", e => {
+    if(e.key === "ArrowLeft") handleAction(0, true);
+    if(e.key === "ArrowRight") handleAction(1, true);
+    if(e.key === " ") handleAction(2, true);
+});
+window.addEventListener("keyup", e => {
+    if(e.key === "ArrowLeft") handleAction(0, false);
+    if(e.key === "ArrowRight") handleAction(1, false);
+    if(e.key === " ") handleAction(2, false);
+});
+
+const setupBtn = (id, index) => {
+    const el = document.getElementById(id);
+    el.addEventListener("touchstart", (e) => { e.preventDefault(); handleAction(index, true); });
+    el.addEventListener("touchend", (e) => { e.preventDefault(); handleAction(index, false); });
+    el.addEventListener("mousedown", (e) => { handleAction(index, true); });
+    el.addEventListener("mouseup", (e) => { handleAction(index, false); });
+};
+setupBtn("btnL", 0);
+setupBtn("btnR", 1);
+setupBtn("btnFire", 2);
+
+</script>
+</body>
+</html>
