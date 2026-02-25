@@ -126,6 +126,10 @@ function gameOver(){
     bombEnemyMove();
     ctx.fillStyle = "red"; ctx.textAlign = "center"; ctx.font = "60px sans-serif";
     ctx.fillText("GAME OVER", 300, 240);
+    // ★ これを追加
+    ctx.fillStyle = "white";
+    ctx.font = "30px sans-serif";
+    ctx.fillText("SCORE: " + score, 300, 260);
     mcnt++;
     if(mcnt > 100) {
         ctx.font = "20px sans-serif"; ctx.fillStyle = "white";
